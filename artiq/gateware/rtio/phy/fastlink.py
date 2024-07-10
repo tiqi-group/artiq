@@ -38,6 +38,12 @@ class SerDes(Module):
         self.readback = Signal(n_frame, reset_less=True)
         # data load synchronization event
         self.stb = Signal()
+        # Cause an immediate strobe which will resynchronise the link (use sparingly)
+        self.stb_now = Signal()
+        # Cause a frame counter reset on the next even frame count
+        self.frame_reset_i = Signal()
+        frame_reset_q = Signal(t_clk)
+        self.frame_reset_synced = Signal()
 
         # # #
 
@@ -79,7 +85,11 @@ class SerDes(Module):
         miso_sr = Signal(t_frame, reset_less=True)
         miso_sr_next = Signal.like(miso_sr)
         self.comb += [
-            self.stb.eq(i == t_frame//2 - 1),
+            self.stb.eq((i == t_frame//2 - 1)
+                        | self.stb_now
+                        | self.frame_reset_synced ),
+            self.frame_reset_synced.eq(
+                        ((frame_reset_q != 0) & (reduce(or_, [(i == n_frame//2*j-1) for j in range(1, n_frame//2+1)])))),
             # LiteETHMACCRCEngine takes data LSB first
             self.crca.data.eq(Cat([sri[-1] for sri in sr[::-1]])),
             self.crcb.data.eq(Cat([sri[-2] for sri in sr[::-1]])),
@@ -108,6 +118,7 @@ class SerDes(Module):
                 crc_insert.eq(self.crca.next if n_crc // n_mosi <= 1
                               else self.crca.last),
             ),
+            frame_reset_q.eq(Cat(self.frame_reset_i, frame_reset_q)),
         ]
 
 
